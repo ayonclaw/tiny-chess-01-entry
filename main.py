@@ -14,14 +14,16 @@ def post(path, body):
         return {'status': 'error', 'code': e.code}
 
 
-# board: sq = 16*row + col, row 0 = rank 8, row 7 = rank 1. White moves -16.
 PI = {'P': 1, 'N': 2, 'B': 3, 'R': 4, 'Q': 5, 'K': 6,
       'p': -1, 'n': -2, 'b': -3, 'r': -4, 'q': -5, 'k': -6}
-VAL = (0, 100, 320, 330, 500, 900, 20000)
+VAL = (0, 100, 320, 330, 500, 900, 0)
 KN = (14, 18, 31, 33, -31, -33, -14, -18)
 BI = (15, 17, -15, -17)
 RO = (16, -16, 1, -1)
 KI = RO + BI
+PROMO = {'q': 5, 'r': 4, 'b': 3, 'n': 2}
+MATE = 100000
+INF = 200000
 
 PST = {
 1: (0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5,
@@ -42,7 +44,18 @@ PST = {
     20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20),
 }
 
-PROMO = {'q': 5, 'r': 4, 'b': 3, 'n': 2}
+POS = {}
+for t in range(1, 7):
+    tab = PST[t]
+    w = [0] * 128
+    b = [0] * 128
+    for sq in range(128):
+        if sq & 0x88:
+            continue
+        row, col = sq >> 4, sq & 7
+        w[sq] = VAL[t] + tab[row * 8 + col]
+        b[sq] = VAL[t] + tab[(7 - row) * 8 + col]
+    POS[t] = (w, b)
 
 
 def load(fen):
@@ -65,17 +78,9 @@ def load(fen):
 
 
 def u2m(u):
-    f = (8 - int(u[1])) * 16 + ord(u[0]) - 97
-    t = (8 - int(u[3])) * 16 + ord(u[2]) - 97
-    return (f, t, PROMO.get(u[4], 0) if len(u) > 4 else 0)
-
-
-def ksq(b, white):
-    k = 6 if white else -6
-    try:
-        return b.index(k)
-    except ValueError:
-        return 116 if white else 4
+    return ((8 - int(u[1])) * 16 + ord(u[0]) - 97,
+            (8 - int(u[3])) * 16 + ord(u[2]) - 97,
+            PROMO.get(u[4], 0) if len(u) > 4 else 0)
 
 
 def attacked(b, sq, byw):
@@ -104,7 +109,7 @@ def attacked(b, sq, byw):
         while 0 <= p < 128 and not p & 0x88:
             v = b[p]
             if v:
-                if (v > 0) == byw and (v == 4 or v == 5):
+                if (v > 0) == byw and abs(v) in (4, 5):
                     return True
                 break
             p += o
@@ -113,7 +118,7 @@ def attacked(b, sq, byw):
         while 0 <= p < 128 and not p & 0x88:
             v = b[p]
             if v:
-                if (v > 0) == byw and (v == 3 or v == 5):
+                if (v > 0) == byw and abs(v) in (3, 5):
                     return True
                 break
             p += o
@@ -132,18 +137,17 @@ def gen(b, white, ep, cr, caps=0):
             pro = 0 if white else 7
             start = 6 if white else 1
             p = f + d
-            if 0 <= p < 128 and not p & 0x88 and not b[p]:
-                last = (p >> 4) == pro
-                if last:
+            if not p & 0x88 and 0 <= p < 128 and not b[p]:
+                if (p >> 4) == pro:
                     for pr in (5, 4, 3, 2):
                         ms.append((f, p, pr))
                 elif not caps:
                     ms.append((f, p, 0))
                     if (f >> 4) == start:
                         q = f + 2 * d
-                        if 0 <= q < 128 and not q & 0x88 and not b[q]:
+                        if not q & 0x88 and 0 <= q < 128 and not b[q]:
                             ms.append((f, q, 0))
-            for o in (-15, -17) if white else (15, 17):
+            for o in ((-15, -17) if white else (15, 17)):
                 p = f + o
                 if p & 0x88 or p < 0 or p > 127:
                     continue
@@ -154,7 +158,7 @@ def gen(b, white, ep, cr, caps=0):
                             ms.append((f, p, pr))
                     else:
                         ms.append((f, p, 0))
-                elif ep is not None and p == ep:
+                elif ep is not None and p == ep and not w:
                     ms.append((f, p, 0))
         elif t == 2 or t == 6:
             for o in (KN if t == 2 else KI):
@@ -169,19 +173,27 @@ def gen(b, white, ep, cr, caps=0):
                     ms.append((f, p, 0))
             if t == 6 and not caps:
                 if white and f == 116:
-                    if 'K' in cr and not b[117] and not b[118] and b[119] == 4:
+                    if ('K' in cr and not b[117] and not b[118] and b[119] == 4
+                            and not attacked(b, 116, False) and not attacked(b, 117, False)
+                            and not attacked(b, 118, False)):
                         ms.append((116, 118, 0))
-                    if 'Q' in cr and not b[115] and not b[114] and not b[113] and b[112] == 4:
+                    if ('Q' in cr and not b[115] and not b[114] and not b[113] and b[112] == 4
+                            and not attacked(b, 116, False) and not attacked(b, 115, False)
+                            and not attacked(b, 114, False)):
                         ms.append((116, 114, 0))
                 elif not white and f == 4:
-                    if 'k' in cr and not b[5] and not b[6] and b[7] == -4:
+                    if ('k' in cr and not b[5] and not b[6] and b[7] == -4
+                            and not attacked(b, 4, True) and not attacked(b, 5, True)
+                            and not attacked(b, 6, True)):
                         ms.append((4, 6, 0))
-                    if 'q' in cr and not b[3] and not b[2] and not b[1] and b[0] == -4:
+                    if ('q' in cr and not b[3] and not b[2] and not b[1] and b[0] == -4
+                            and not attacked(b, 4, True) and not attacked(b, 3, True)
+                            and not attacked(b, 2, True)):
                         ms.append((4, 2, 0))
         else:
             for o in (RO if t == 4 else BI if t == 3 else KI):
                 p = f + o
-                while 0 <= p < 128 and not p & 0x88:
+                while not p & 0x88 and 0 <= p < 128:
                     w = b[p]
                     if w:
                         if (w > 0) != white:
@@ -217,27 +229,25 @@ def make(b, m, ep, cr):
     if abs(v) == 6:
         ncr = ncr.replace('K' if white else 'k', '').replace('Q' if white else 'q', '')
     if f == 7 or t == 7:
-        ncr = ncr.replace('K', '')
-    if f == 0 or t == 0:
-        ncr = ncr.replace('Q', '')
-    if f == 119 or t == 119:
         ncr = ncr.replace('k', '')
-    if f == 112 or t == 112:
+    if f == 0 or t == 0:
         ncr = ncr.replace('q', '')
+    if f == 119 or t == 119:
+        ncr = ncr.replace('K', '')
+    if f == 112 or t == 112:
+        ncr = ncr.replace('Q', '')
     return nb, nep, ncr
 
 
 def ev(b):
     s = 0
-    for sq in range(120):
+    for sq in range(128):
         v = b[sq]
-        if not v:
-            continue
-        row = sq >> 4
-        col = sq & 7
-        t = v if v > 0 else -v
-        i = (row * 8 + col) if v > 0 else ((7 - row) * 8 + col)
-        s += (VAL[t] + PST[t][i]) if v > 0 else -(VAL[t] + PST[t][i])
+        if v:
+            if v > 0:
+                s += POS[v][0][sq]
+            else:
+                s -= POS[-v][1][sq]
     return s
 
 
@@ -246,42 +256,42 @@ class Stop(Exception):
 
 
 nodes = 0
-LIMIT = 120000
+LIMIT = 200000
+KILL = {}
 
 
-def mv_score(b, m):
+def mscore(m, b, ep, ply):
     f, t, pr = m
     v = b[t]
-    s = 0
-    if v:
-        s += 1000 + (abs(v) if abs(v) < 6 else 0) * 10 - abs(b[f])
     if pr:
-        s += 900 + pr
-    if abs(b[f]) == 1 and t == ep_cur and not v:
-        s += 1000
-    return s
+        return 200000 + pr
+    if v:
+        return 100000 + (abs(v) if abs(v) < 6 else 0) * 100 - abs(b[f])
+    if abs(b[f]) == 1 and t == ep:
+        return 90000
+    if m in KILL.get(ply, ()):
+        return 80000
+    return 0
 
 
-ep_cur = None
-
-
-def qs(b, white, ep, cr, alpha, beta):
+def qs(b, white, ep, cr, alpha, beta, ply):
     global nodes
     nodes += 1
     if nodes > LIMIT:
         raise Stop
+    k = -6 if white else 6
+    if k not in b:
+        return -MATE + ply
     st = ev(b) if white else -ev(b)
     if st >= beta:
         return st
     if st > alpha:
         alpha = st
     ms = gen(b, white, ep, cr, 1)
-    ms.sort(key=lambda m: mv_score(b, m), reverse=True)
+    ms.sort(key=lambda m: mscore(m, b, ep, ply), reverse=True)
     for m in ms:
         nb, ne, nc = make(b, m, ep, cr)
-        if attacked(nb, ksq(nb, white), not white):
-            continue
-        s = -qs(nb, not white, ne, nc, -beta, -alpha)
+        s = -qs(nb, not white, ne, nc, -beta, -alpha, ply + 1)
         if s > alpha:
             alpha = s
             if alpha >= beta:
@@ -290,21 +300,24 @@ def qs(b, white, ep, cr, alpha, beta):
 
 
 def nega(b, white, ep, cr, d, alpha, beta, ply):
-    global nodes, ep_cur
+    global nodes
     nodes += 1
     if nodes > LIMIT:
         raise Stop
+    k = 6 if white else -6
+    if k not in b:
+        return -MATE + ply
     if d <= 0:
-        return qs(b, white, ep, cr, alpha, beta)
-    ep_cur = ep
+        return qs(b, white, ep, cr, alpha, beta, ply)
+    incheck = attacked(b, b.index(k), not white)
+    if incheck:
+        d += 1
     ms = gen(b, white, ep, cr)
-    ms.sort(key=lambda m: mv_score(b, m), reverse=True)
-    best = -300000
+    ms.sort(key=lambda m: mscore(m, b, ep, ply), reverse=True)
+    best = -INF
     any_ = False
     for m in ms:
         nb, ne, nc = make(b, m, ep, cr)
-        if attacked(nb, ksq(nb, white), not white):
-            continue
         any_ = True
         s = -nega(nb, not white, ne, nc, d - 1, -beta, -alpha, ply + 1)
         if s > best:
@@ -312,39 +325,48 @@ def nega(b, white, ep, cr, d, alpha, beta, ply):
         if s > alpha:
             alpha = s
         if alpha >= beta:
+            if not b[m[1]]:
+                KILL.setdefault(ply, [])
+                KILL[ply] = [m] + [x for x in KILL[ply] if x != m][:1]
             break
     if not any_:
-        return (-300000 + ply) if attacked(b, ksq(b, white), not white) else 0
+        return (-MATE + ply) if incheck else 0
     return best
 
 
-def choose(fen, legal, budget=150000):
-    global nodes, LIMIT
+def choose(fen, legal, budget=200000):
+    global nodes, LIMIT, KILL
+    KILL = {}
     b, white, ep, cr = load(fen)
-    rootm = [u2m(u) for u in legal]
+    rootm = []
     lut = {}
     for u in legal:
-        lut.setdefault(u2m(u), u)
+        m = u2m(u)
+        if m not in lut:
+            lut[m] = u
+            rootm.append(m)
     best = legal[0]
+    bestm = rootm[0]
     nodes = 0
     LIMIT = budget
-    for d in range(1, 20):
-        a = -300000
+    for d in range(1, 30):
+        a = -INF
         cur = None
         hit = False
+        order = [bestm] + [m for m in rootm if m != bestm]
         try:
-            for m in rootm:
+            for m in order:
                 nb, ne, nc = make(b, m, ep, cr)
-                if attacked(nb, ksq(nb, white), not white):
-                    continue
-                s = -nega(nb, not white, ne, nc, d - 1, -300000, -a, 1)
+                s = -nega(nb, not white, ne, nc, d - 1, -INF, -a, 1)
                 if s > a:
                     a = s
                     cur = m
-                    best = lut[m]
         except Stop:
             hit = True
-        if hit or cur is None:
+        if cur is not None:
+            best = lut[cur]
+            bestm = cur
+        if hit:
             break
     return best
 

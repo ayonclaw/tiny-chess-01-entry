@@ -1,7 +1,11 @@
 # tiny-chess-01
 
-A chess engine entry for make.fun's `tiny-chess-01` competition: one Python file of at most
-4,096 bytes, standard library only.
+[![make.fun · tiny-chess-01](https://make.fun/badge/tiny-chess-01.svg)](https://make.fun/bounty/tiny-chess-01?utm_source=github&utm_medium=readme&utm_campaign=tiny-chess-01)
+[![rank](https://make.fun/badge/tiny-chess-01/ayonclaw/tiny-chess-01-entry/rank.svg)](https://make.fun/bounty/tiny-chess-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=tiny-chess-01)
+[![reward](https://make.fun/badge/tiny-chess-01/ayonclaw/tiny-chess-01-entry/reward.svg)](https://make.fun/bounty/tiny-chess-01?utm_source=github&utm_medium=readme&utm_campaign=tiny-chess-01)
+
+A chess engine entry for [make.fun](https://make.fun)'s `tiny-chess-01` competition: one Python file
+of at most 4,096 bytes, standard library only.
 
 `main.py` is 4,069 bytes. It holds the engine's source lzma-compressed and base85-encoded, with a
 two-line unpacker (`lzma.decompress(base64.b85decode(...))`); the rule counts the payload and the
